@@ -1,0 +1,262 @@
+name: vexa_dev
+services:
+  api-gateway:
+    build:
+      context: .
+      dockerfile: services/api-gateway/Dockerfile
+    ports:
+      - "${API_GATEWAY_HOST_PORT:-8056}:8000"
+    environment:
+      - ADMIN_API_URL=http://admin-api:8001
+      - BOT_MANAGER_URL=http://bot-manager:8080
+      - TRANSCRIPTION_COLLECTOR_URL=http://transcription-collector:8000
+      - LOG_LEVEL=DEBUG
+    init: true
+    depends_on:
+      admin-api:
+        condition: service_started
+      bot-manager:
+        condition: service_started
+      transcription-collector:
+        condition: service_started
+    networks:
+      - vexa_default
+    restart: unless-stopped
+
+  admin-api:
+    build:
+      context: .
+      dockerfile: services/admin-api/Dockerfile
+    ports:
+      - "${ADMIN_API_HOST_PORT:-8057}:8001"
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=vexa
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - ADMIN_API_TOKEN=${ADMIN_API_TOKEN}
+      - LOG_LEVEL=DEBUG
+    init: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - vexa_default
+    restart: unless-stopped
+
+  bot-manager:
+    build:
+      context: .
+      dockerfile: services/bot-manager/Dockerfile
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - BOT_IMAGE_NAME=${BOT_IMAGE_NAME:-vexa-bot:dev}
+      - DOCKER_NETWORK=${COMPOSE_PROJECT_NAME:-vexa}_vexa_default
+      - LOG_LEVEL=DEBUG
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=vexa
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - DOCKER_HOST=unix://var/run/docker.sock
+      - DEVICE_TYPE=${DEVICE_TYPE}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    init: true
+    depends_on:
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    networks:
+      - vexa_default
+    restart: unless-stopped
+
+  whisperlive:
+    profiles: ["gpu"]
+    build:
+      context: .
+      dockerfile: services/WhisperLive/Dockerfile.project
+    volumes:
+      - ./hub:/root/.cache/huggingface/hub
+      - ./services/WhisperLive/models:/app/models
+    environment:
+      # Use Redis Stream URL instead of WebSocket URL
+      - REDIS_STREAM_URL=redis://redis:6379/0/transcription_segments
+      # Keep the old URL for backward compatibility
+      - TRANSCRIPTION_COLLECTOR_URL=redis://redis:6379/0/transcription_segments
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - REDIS_STREAM_NAME=transcription_segments
+      - LANGUAGE_DETECTION_SEGMENTS=${LANGUAGE_DETECTION_SEGMENTS}
+      - DEVICE_TYPE=${DEVICE_TYPE}
+      - WHISPER_MODEL_SIZE=${WHISPER_MODEL_SIZE}
+      - WL_MAX_CLIENTS=${WL_MAX_CLIENTS}
+      # Server-level speaker-based circuit breaker
+      - WL_USE_SPEAKER_GROUND_TRUTH=${WL_USE_SPEAKER_GROUND_TRUTH:-true}
+      - WL_SERVER_SPEAKER_NO_TX_STALL_S=${WL_SERVER_SPEAKER_NO_TX_STALL_S:-30}
+      - WL_SPEAKER_ACTIVE_WINDOW_S=${WL_SPEAKER_ACTIVE_WINDOW_S:-8}
+      - WL_SERVER_WARMUP_S=${WL_SERVER_WARMUP_S:-60}
+      # VAD filter - most permissive to catch hallucinations during silence
+      - VAD_FILTER_THRESHOLD=${VAD_FILTER_THRESHOLD:-0}
+    command: --port 9090 --backend faster_whisper --faster_whisper_custom_model_path ${WHISPER_MODEL_SIZE}
+    expose:
+      - "9090" #use for transcription web socket
+      - "9091" #use for health check
+    deploy:
+      replicas: 1 # Sets to 1 to avoid GPU contention
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["3"] # Ensure this is configurable or correct for your setup
+              capabilities: [gpu]
+    init: true
+    depends_on:
+      transcription-collector:
+        condition: service_started
+    networks:
+      - vexa_default
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+
+  # CPU version of WhisperLive for users without GPU
+  whisperlive-cpu:
+    profiles: ["cpu"]
+    build:
+      context: .
+      dockerfile: services/WhisperLive/Dockerfile.cpu
+    volumes:
+      - ./hub:/root/.cache/huggingface/hub
+      - ./services/WhisperLive/models:/app/models
+    environment:
+      - REDIS_STREAM_URL=redis://redis:6379/0/transcription_segments
+      - TRANSCRIPTION_COLLECTOR_URL=redis://redis:6379/0/transcription_segments
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - REDIS_STREAM_NAME=transcription_segments
+      - LANGUAGE_DETECTION_SEGMENTS=${LANGUAGE_DETECTION_SEGMENTS}
+      - VAD_FILTER_THRESHOLD=${VAD_FILTER_THRESHOLD}
+      - DEVICE_TYPE=cpu
+      - WHISPER_MODEL_SIZE=${WHISPER_MODEL_SIZE}
+      - WL_MAX_CLIENTS=${WL_MAX_CLIENTS}
+    deploy:
+      replicas: 2
+    command: --port 9090 --backend faster_whisper --faster_whisper_custom_model_path ${WHISPER_MODEL_SIZE}
+    expose:
+      - "9090" #use for transcription web socket
+      - "9091" #use for health check
+    init: true
+    depends_on:
+      transcription-collector:
+        condition: service_started
+    networks:
+      - vexa_default
+    # Don't auto-start CPU version, users can manually start it
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+
+
+
+  transcription-collector:
+    build:
+      context: .
+      dockerfile: services/transcription-collector/Dockerfile
+    ports:
+      - "${TRANSCRIPTION_COLLECTOR_HOST_PORT:-8123}:8000"
+    volumes:
+      - ./alembic.ini:/app/alembic.ini
+      - ./libs/shared-models/alembic:/app/alembic
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=vexa
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_STREAM_NAME=transcription_segments
+      - REDIS_CONSUMER_GROUP=collector_group
+      - REDIS_STREAM_READ_COUNT=10
+      - REDIS_STREAM_BLOCK_MS=2000
+      - BACKGROUND_TASK_INTERVAL=10
+      - IMMUTABILITY_THRESHOLD=30
+      - REDIS_SEGMENT_TTL=3600
+      - REDIS_CLEANUP_THRESHOLD=86400
+      - LOG_LEVEL=DEBUG
+    init: true
+    depends_on:
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    networks:
+      - vexa_default
+    restart: unless-stopped
+
+  mcp:
+    build:
+      context: .
+      dockerfile: services/mcp/Dockerfile
+    ports:
+      - "${MCP_HOST_PORT:-18888}:18888"
+    environment:
+      - API_GATEWAY_URL=http://api-gateway:8000
+      - LOG_LEVEL=DEBUG
+    init: true
+    depends_on:
+      api-gateway:
+        condition: service_started
+    networks:
+      - vexa_default
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.0-alpine
+    command:
+      ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    volumes:
+      - redis-data:/data
+    networks:
+      - vexa_default
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_DB=vexa
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d vexa"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - vexa_default
+    restart: unless-stopped
+    ports:
+      - "${POSTGRES_HOST_PORT:-5438}:5432"
+
+volumes:
+  redis-data:
+  postgres-data:
+
+networks:
+  vexa_default:
+    driver: bridge

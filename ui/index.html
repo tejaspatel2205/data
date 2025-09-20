@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vexa Live Meeting Console</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand">
+          <div class="logo">V</div>
+          <div class="name">VibeNote</div>
+        </div>
+        <nav class="tabs">
+          <button class="tab active" data-view="#home">Home</button>
+          <button class="tab" data-view="#meetings">My Meetings</button>
+          <button class="tab" data-view="#settings">Settings</button>
+        </nav>
+        <div class="avatar">🙂</div>
+      </header>
+
+      <main class="layout">
+        <div id="toasts" class="toasts"></div>
+        <aside class="left">
+          <section class="panel">
+            <h3>Participants <span id="participant-count" class="muted">(0)</span></h3>
+            <div id="participants" class="participants"></div>
+          </section>
+
+          <section class="panel">
+            <h3>Speaking Activity</h3>
+            <div id="speaking" class="speaking"></div>
+          </section>
+          
+          <section class="panel">
+            <h3>Emotion Analysis</h3>
+            <div id="emotion-overview" class="emotion-overview">
+              <div class="emotion-toggle">
+                <label>
+                  <input type="checkbox" id="emotion-enabled" checked>
+                  <span>Enable Real-time Emotions</span>
+                </label>
+              </div>
+              <div class="overall-mood" id="overall-mood">
+                <div class="mood-indicator" id="dominant-mood">😐 Neutral</div>
+                <div class="mood-confidence" id="mood-confidence">--</div>
+              </div>
+            </div>
+          </section>
+        </aside>
+
+        <section class="center" id="home">
+          <div class="controls">
+            <div class="field">
+              <label>Platform</label>
+              <select id="platform">
+                <option value="google_meet" selected>Google Meet</option>
+              </select>
+            </div>
+            <div class="field grow">
+              <label>Meeting ID</label>
+              <input id="meetingId" placeholder="e.g. abc-defg-hij" />
+            </div>
+            <div class="buttons">
+              <button id="sendBot" class="primary">Send Bot</button>
+              <button id="stopBot" class="danger">Remove Bot</button>
+              <button id="downloadJson" class="ghost">Download JSON</button>
+              <button id="summarize" class="ghost">Summarize</button>
+            </div>
+          </div>
+
+          <section class="transcript panel">
+            <div class="panel-header">
+              <div>
+                <h3>Live Meeting Transcript</h3>
+                <div class="muted" id="recording-status">Not recording</div>
+              </div>
+              <div class="status-dot" id="poll-dot"></div>
+            </div>
+            <div id="transcript" class="transcript-body"></div>
+            <div class="topic-cloud" id="topic-cloud"></div>
+            <div class="footer-actions">
+              <button id="downloadSummary" class="ghost">Download Summary (.txt)</button>
+            </div>
+          </section>
+        </section>
+
+        <section class="center hidden" id="meetings">
+          <section class="panel">
+            <div class="panel-header"><h3>My Meetings</h3><button id="refreshMeetings" class="ghost">Refresh</button></div>
+            <div id="meetingsList" class="list"></div>
+          </section>
+        </section>
+
+        <section class="center hidden" id="settings">
+          <section class="panel">
+            <h3>Settings</h3>
+            <div class="settings-grid">
+              <div class="field">
+                <label>API Base URL</label>
+                <input id="baseUrl" placeholder="http://localhost:18056" />
+              </div>
+              <div class="field">
+                <label>API Token</label>
+                <input id="tokenInput" type="password" placeholder="Paste user API token" />
+              </div>
+              <div class="field">
+                <label>Default Meeting ID</label>
+                <input id="defaultMeeting" placeholder="abc-defg-hij" />
+              </div>
+
+              <div class="buttons">
+                <button id="saveSettings" class="primary">Save</button>
+                <button id="clearSettings" class="ghost">Clear</button>
+              </div>
+            </div>
+          </section>
+        </section>
+
+        <aside class="right">
+          <section class="panel">
+            <h3>Meeting Summary</h3>
+            <div id="summary" class="summary">
+              <div class="muted">Summary will appear here after you click "Summarize".</div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <h3>Emotion Timeline</h3>
+            <div class="emotion-controls">
+              <button id="emotion-refresh" class="ghost small">↻ Refresh</button>
+            </div>
+            <div id="emotion-timeline" class="emotion-timeline">
+              <div class="muted">Emotion data will appear here during the meeting.</div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <h3>Key Decisions</h3>
+            <ul id="decisions" class="bullets"></ul>
+          </section>
+          
+          <section class="panel">
+            <h3>Emotion Analytics</h3>
+            <div class="emotion-analytics" id="emotion-analytics">
+              <div class="analytics-section">
+                <div class="label muted">Meeting Sentiment</div>
+                <div id="sentiment-distribution" class="sentiment-bars"></div>
+              </div>
+              <div class="analytics-section">
+                <div class="label muted">Most Active Emotions</div>
+                <div id="top-emotions" class="emotion-chips"></div>
+              </div>
+              <div class="analytics-section">
+                <div class="label muted">Speaker Insights</div>
+                <div id="speaker-insights" class="speaker-insights"></div>
+              </div>
+            </div>
+          </section>
+          
+          <section class="panel">
+            <h3>Keyword Cloud</h3>
+            <div class="label muted">Frequent</div>
+            <div id="kw-frequent" class="topic-cloud"></div>
+            <div class="label muted" style="margin-top:8px">Rare</div>
+            <div id="kw-rare" class="topic-cloud"></div>
+          </section>
+        </aside>
+      </main>
+    </div>
+
+    <template id="line-template">
+      <div class="line">
+        <div class="time"></div>
+        <div class="content">
+          <div class="speaker">
+            <span class="speaker-name"></span>
+            <span class="speaker-emotion" title="Current emotion">😐</span>
+          </div>
+          <div class="text"></div>
+        </div>
+      </div>
+    </template>
+    
+    <template id="emotion-timeline-item">
+      <div class="emotion-item">
+        <div class="emotion-timestamp"></div>
+        <div class="emotion-content">
+          <div class="emotion-speaker"></div>
+          <div class="emotion-indicator">
+            <span class="emotion-emoji"></span>
+            <span class="emotion-label"></span>
+            <span class="emotion-confidence"></span>
+          </div>
+          <div class="emotion-text-preview"></div>
+        </div>
+      </div>
+    </template>
+
+    <script>
+      // Prefill local dev settings (masked in UI)
+      try {
+        localStorage.setItem('vexa_base', localStorage.getItem('vexa_base') || 'http://localhost:18056');
+        localStorage.setItem('vexa_token', localStorage.getItem('vexa_token') || 'CNkYRVemIeZk0wQnYfAg3dvM0LRmBp5lxIDMjUll');
+      } catch (e) {}
+    </script>
+    <script src="app.js"></script>
+  </body>
+  </html>
+
+
